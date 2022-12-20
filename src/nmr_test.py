@@ -12,19 +12,18 @@ import neural_renderer
 #############
 ### Utils ###
 #############
-def convert_as(src, trg):
-    src = src.type_as(trg)
-    if src.is_cuda:
-        src = src.cuda(device=trg.get_device())
-    return src
-
+# def convert_as(src, trg):
+#     src = src.type_as(trg)
+#     if src.is_cuda:
+#         src = src.cuda(device=trg.get_device())
+#     return src
 
 def get_params(carlaTcam, carlaTveh):  # carlaTcam: tuple of 2*3
-    scale = 0.41
+    scale = 0.40        # adjust based on the certain object
     # calc eye
     eye = [0, 0, 0]
     for i in range(0, 3):
-        eye[i] = (carlaTcam[0][i] - carlaTveh[0][i]) * scale
+        eye[i] = carlaTcam[0][i] * scale
         
     # calc camera_direction and camera_up
     pitch = math.radians(carlaTcam[1][0])
@@ -202,9 +201,6 @@ class NeuralRenderer(torch.nn.Module):
         self.renderer.renderer.light_direction = [0, 0, 1]  # up-to-down
         
         self.renderer.to_gpu()
-
-        self.proj_fn = None
-        self.offset_z = 5.
         
         self.RenderFunc = Render(self.renderer)
 
@@ -215,10 +211,6 @@ class NeuralRenderer(torch.nn.Module):
 
     def set_bgcolor(self, color):
         self.renderer.renderer.background_color = color
-
-    def project_points(self, verts, cams):
-        proj = self.proj_fn(verts, cams)
-        return proj[:, :, :2]
 
     def forward(self, vertices, faces, textures=None):
         if textures is not None:

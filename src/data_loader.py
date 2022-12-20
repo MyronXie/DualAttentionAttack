@@ -1,20 +1,16 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import os
-import sys
 import cv2
 import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
-sys.path.append("../renderer/")
-
 import nmr_test as nmr
 import neural_renderer
 
-
 class MyDataset(Dataset):
-    def __init__(self, data_dir, img_size, texture_size, faces, vertices, distence=None, mask_dir='', ret_mask=False):
+    def __init__(self, data_dir, img_size, texture_size, faces, vertices, distence=None, mask_dir=''):
         self.data_dir = data_dir
         self.files = []
         files = os.listdir(data_dir)
@@ -26,15 +22,10 @@ class MyDataset(Dataset):
                 veh_trans = data['veh_trans']
                 cam_trans = data['cam_trans']
 
-                cam_trans[0][0] = cam_trans[0][0] + veh_trans[0][0]
-                cam_trans[0][1] = cam_trans[0][1] + veh_trans[0][1]
-                cam_trans[0][2] = cam_trans[0][2] + veh_trans[0][2]
-
                 veh_trans[0][2] = veh_trans[0][2] + 0.2
 
                 dis = (cam_trans - veh_trans)[0, :]
                 dis = np.sum(dis ** 2)
-                # print(dis)
                 if dis <= distence:
                     self.files.append(file)
         print(len(self.files))
@@ -45,26 +36,18 @@ class MyDataset(Dataset):
         self.vertices_var = vertices[None, :, :].cuda(device=0)
         self.mask_renderer = nmr.NeuralRenderer(img_size=self.img_size).cuda()
         self.mask_dir = mask_dir
-        self.ret_mask = ret_mask
-        # print(self.files)
     
     def set_textures(self, textures):
         self.textures = textures
     
     def __getitem__(self, index):
-        # index = 5
-        
-        # print(index)
         file = os.path.join(self.data_dir, self.files[index])
         data = np.load(file)
         img = data['img']
         veh_trans = data['veh_trans']
         cam_trans = data['cam_trans']
-        cam_trans[0][0] = cam_trans[0][0] + veh_trans[0][0]
-        cam_trans[0][1] = cam_trans[0][1] + veh_trans[0][1]
-        cam_trans[0][2] = cam_trans[0][2] + veh_trans[0][2]
 
-        veh_trans[0][2] = veh_trans[0][2] + 0.2
+        veh_trans[0][2] = veh_trans[0][2] + 0.2             # adjust based on the certain object
 
         eye, camera_direction, camera_up = nmr.get_params(cam_trans, veh_trans)
         
@@ -81,25 +64,19 @@ class MyDataset(Dataset):
         img = np.transpose(img, (2, 0, 1))
         img = np.resize(img, (1, img.shape[0], img.shape[1], img.shape[2]))
         img = torch.from_numpy(img).cuda(device=0)
-        # print(img.size())
-        # print(imgs_pred.size())
+
         imgs_pred = imgs_pred / torch.max(imgs_pred)
         
-        
-        
-        # if self.ret_mask:
         mask_file = os.path.join(self.mask_dir, self.files[index][:-4] + '.png')
         mask = cv2.imread(mask_file)
         mask = cv2.resize(mask, (self.img_size, self.img_size))
         mask = np.logical_or(mask[:, :, 0], mask[:, :, 1], mask[:, :, 2])
         mask = torch.from_numpy(mask.astype('float32')).cuda()
-        # print(mask.size())
-        # print(torch.max(mask))
 
         total_img = img * (1-mask) + 255 * imgs_pred * mask
 
-        return index, total_img.squeeze(0) , imgs_pred.squeeze(0), mask
-        # return index, total_img.squeeze(0) , imgs_pred.squeeze(0)
+        return index, total_img.squeeze(0), imgs_pred.squeeze(0), mask
+
     
     def __len__(self):
         return len(self.files)
