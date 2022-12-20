@@ -1,5 +1,0 @@
-numpy
-chainer
-cupy
-tqdm
-scikit-image

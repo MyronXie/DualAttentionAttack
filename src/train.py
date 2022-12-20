@@ -145,7 +145,7 @@ def loss_midu(x1):
 texture_param = np.ones((1, faces.shape[0], texture_size, texture_size, texture_size, 3), 'float32') * -0.9# test 0
 texture_param = torch.autograd.Variable(torch.from_numpy(texture_param).cuda(device=0), requires_grad=True)
 
-texture_origin = torch.from_numpy(textures[None, :, :, :, :, :]).cuda(device=0)
+texture_origin = textures[None, :, :, :, :, :].cuda(device=0)
 
 texture_mask = np.zeros((faces.shape[0], texture_size, texture_size, texture_size, 3), 'int8')
 with open(args.faces, 'r') as f:

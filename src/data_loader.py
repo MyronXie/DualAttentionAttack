@@ -41,8 +41,8 @@ class MyDataset(Dataset):
         self.img_size = img_size
         textures = np.ones((1, faces.shape[0], texture_size, texture_size, texture_size, 3), 'float32')
         self.textures = torch.from_numpy(textures).cuda(device=0)
-        self.faces_var = torch.from_numpy(faces[None, :, :]).cuda(device=0)
-        self.vertices_var = torch.from_numpy(vertices[None, :, :]).cuda(device=0)
+        self.faces_var = faces[None, :, :].cuda(device=0)
+        self.vertices_var = vertices[None, :, :].cuda(device=0)
         self.mask_renderer = nmr.NeuralRenderer(img_size=self.img_size).cuda()
         self.mask_dir = mask_dir
         self.ret_mask = ret_mask
@@ -117,4 +117,3 @@ if __name__ == '__main__':
     
     for img, car_box in loader:
         print(img.size(), car_box.size())
-ß

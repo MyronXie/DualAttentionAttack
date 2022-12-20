@@ -4,13 +4,9 @@ from __future__ import print_function
 
 import numpy as np
 import scipy.misc
-import tqdm
 import math
-import os
 
-import chainer
 import torch
-
 import neural_renderer
 
 #############
@@ -36,8 +32,9 @@ def get_params(carlaTcam, carlaTveh):  # carlaTcam: tuple of 2*3
     roll = math.radians(carlaTcam[1][2])
     # 需不需要确定下范围？？？
     cam_direct = [math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)]
-    cam_up = [math.cos(math.pi/2+pitch) * math.cos(yaw), math.cos(math.pi/2+pitch) * math.sin(yaw), math.sin(math.pi/2+pitch)]
-    
+    cam_up = [math.cos(math.pi / 2 + pitch) * math.cos(yaw), math.cos(math.pi / 2 + pitch) * math.sin(yaw),
+              math.sin(math.pi / 2 + pitch)]
+
     # 如果物体也有旋转，则需要调整相机位置和角度，和物体旋转方式一致
     # 先实现最简单的绕Z轴旋转
     p_cam = eye
@@ -46,20 +43,19 @@ def get_params(carlaTcam, carlaTveh):  # carlaTcam: tuple of 2*3
     p_l = [p_cam, p_dir, p_up]
     trans_p = []
     for p in p_l:
-        if math.sqrt(p[0]**2 + p[1]**2) == 0:
+        if math.sqrt(p[0] ** 2 + p[1] ** 2) == 0:
             cosfi = 0
             sinfi = 0
         else:
-            cosfi = p[0] / math.sqrt(p[0]**2 + p[1]**2)
-            sinfi = p[1] / math.sqrt(p[0]**2 + p[1]**2)        
+            cosfi = p[0] / math.sqrt(p[0] ** 2 + p[1] ** 2)
+            sinfi = p[1] / math.sqrt(p[0] ** 2 + p[1] ** 2)
         cossum = cosfi * math.cos(math.radians(carlaTveh[1][1])) + sinfi * math.sin(math.radians(carlaTveh[1][1]))
         sinsum = math.cos(math.radians(carlaTveh[1][1])) * sinfi - math.sin(math.radians(carlaTveh[1][1])) * cosfi
-        trans_p.append([math.sqrt(p[0]**2 + p[1]**2) * cossum, math.sqrt(p[0]**2 + p[1]**2) * sinsum, p[2]])
-    
-    
+        trans_p.append([math.sqrt(p[0] ** 2 + p[1] ** 2) * cossum, math.sqrt(p[0] ** 2 + p[1] ** 2) * sinsum, p[2]])
+
     return trans_p[0], \
-        [trans_p[1][0] - trans_p[0][0], trans_p[1][1] - trans_p[0][1], trans_p[1][2] - trans_p[0][2]], \
-        [trans_p[2][0] - trans_p[0][0], trans_p[2][1] - trans_p[0][1], trans_p[2][2] - trans_p[0][2]]
+           [trans_p[1][0] - trans_p[0][0], trans_p[1][1] - trans_p[0][1], trans_p[1][2] - trans_p[0][2]], \
+           [trans_p[2][0] - trans_p[0][0], trans_p[2][1] - trans_p[0][1], trans_p[2][2] - trans_p[0][2]]
     
 
 ########################################################################
@@ -69,7 +65,7 @@ def get_params(carlaTcam, carlaTveh):  # carlaTcam: tuple of 2*3
 class NMR(object):
     def __init__(self):
         # setup renderer
-        renderer = neural_renderer.Renderer()
+        renderer = neural_renderer.Renderer(camera_mode='look')
         self.renderer = renderer
 
     def to_gpu(self, device=0):
@@ -84,24 +80,24 @@ class NMR(object):
         Returns:
             masks: B X 256 X 256 numpy array
         '''
-        self.faces = chainer.Variable(chainer.cuda.to_gpu(faces, self.cuda_device))
-        self.vertices = chainer.Variable(chainer.cuda.to_gpu(vertices, self.cuda_device))
+        self.faces = torch.autograd.Variable(faces.cuda())
+        self.vertices = torch.autograd.Variable(vertices.cuda())
 
         self.masks = self.renderer.render_silhouettes(self.vertices, self.faces)
 
         masks = self.masks.data.get()
         return masks
     
-    def backward_mask(self, grad_masks):
-        ''' Compute gradient of vertices given mask gradients.
-        Args:
-            grad_masks: B X 256 X 256 numpy array
-        Returns:
-            grad_vertices: B X N X 3 numpy array
-        '''
-        self.masks.grad = chainer.cuda.to_gpu(grad_masks, self.cuda_device)
-        self.masks.backward()
-        return self.vertices.grad.get()
+    # def backward_mask(self, grad_masks):
+    #     ''' Compute gradient of vertices given mask gradients.
+    #     Args:
+    #         grad_masks: B X 256 X 256 numpy array
+    #     Returns:
+    #         grad_vertices: B X N X 3 numpy array
+    #     '''
+    #     self.masks.grad = grad_masks.cuda()
+    #     self.masks.backward()
+    #     return self.vertices.grad.get()
 
     def forward_img(self, vertices, faces, textures):
         ''' Renders masks.
@@ -112,26 +108,26 @@ class NMR(object):
         Returns:
             images: B X 3 x 256 X 256 numpy array
         '''
-        self.faces = chainer.Variable(chainer.cuda.to_gpu(faces, self.cuda_device))
-        self.vertices = chainer.Variable(chainer.cuda.to_gpu(vertices, self.cuda_device))
-        self.textures = chainer.Variable(chainer.cuda.to_gpu(textures, self.cuda_device))
-        self.images = self.renderer.render(self.vertices, self.faces, self.textures)
+        self.faces = faces
+        self.vertices = vertices
+        self.textures = textures
+        self.images, _, _ = self.renderer.render(self.vertices, self.faces, self.textures)
 
-        images = self.images.data.get()
-        return images
+        return self.images
 
 
-    def backward_img(self, grad_images):
-        ''' Compute gradient of vertices given image gradients.
-        Args:
-            grad_images: B X 3? X 256 X 256 numpy array
-        Returns:
-            grad_vertices: B X N X 3 numpy array
-            grad_textures: B X F X T X T X T X 3 numpy array
-        '''
-        self.images.grad = chainer.cuda.to_gpu(grad_images, self.cuda_device)
-        self.images.backward()
-        return self.vertices.grad.get(), self.textures.grad.get()
+    # def backward_img(self, grad_images):
+    #     ''' Compute gradient of vertices given image gradients.
+    #     Args:
+    #         grad_images: B X 3? X 256 X 256 numpy array
+    #     Returns:
+    #         grad_vertices: B X N X 3 numpy array
+    #         grad_textures: B X F X T X T X T X 3 numpy array
+    #     '''
+    #     # self.images.grad = chainer.cuda.to_gpu(grad_images, self.cuda_device)
+    #     self.images.grad = grad_images.cuda()
+    #     self.images.backward()
+    #     return self.vertices.grad.get(), self.textures.grad.get()
 
 ########################################################################
 ################# Wrapper class a rendering PythonOp ###################
@@ -146,32 +142,32 @@ class Render(torch.autograd.Function):
     def forward(self, vertices, faces, textures=None):
         # B x N x 3
         # Flipping the y-axis here to make it align with the image coordinate system!
-        vs = vertices.cpu().numpy()
+        vs = vertices.clone()  # prevent always flipping axis direction
         vs[:, :, 1] *= -1
-        fs = faces.cpu().numpy()
+        fs = faces
         if textures is None:
             self.mask_only = True
             masks = self.renderer.forward_mask(vs, fs)
-            return convert_as(torch.Tensor(masks), vertices)
+            return masks
         else:
             self.mask_only = False
-            ts = textures.cpu().numpy()
+            ts = textures
             imgs = self.renderer.forward_img(vs, fs, ts)
-            return convert_as(torch.Tensor(imgs), vertices)
+            return imgs
 
-    def backward(self, grad_out):
-        g_o = grad_out.cpu().numpy()
-        if self.mask_only:
-            grad_verts = self.renderer.backward_mask(g_o)
-            grad_verts = convert_as(torch.Tensor(grad_verts), grad_out)
-            grad_tex = None
-        else:
-            grad_verts, grad_tex = self.renderer.backward_img(g_o)
-            grad_verts = convert_as(torch.Tensor(grad_verts), grad_out)
-            grad_tex = convert_as(torch.Tensor(grad_tex), grad_out)
-
-        grad_verts[:, :, 1] *= -1
-        return grad_verts, None, grad_tex
+    # def backward(self, grad_out):
+    #     # g_o = grad_out.cpu().numpy()
+    #     if self.mask_only:
+    #         grad_verts = self.renderer.backward_mask(grad_out)
+    #         # grad_verts = convert_as(torch.Tensor(grad_verts), grad_out)
+    #         grad_tex = None
+    #     else:
+    #         grad_verts, grad_tex = self.renderer.backward_img(grad_out)
+    #         # grad_verts = convert_as(torch.Tensor(grad_verts), grad_out)
+    #         # grad_tex = convert_as(torch.Tensor(grad_tex), grad_out)
+    #
+    #     grad_verts[:, :, 1] *= -1
+    #     return grad_verts, None, grad_tex
 
 
 ########################################################################
@@ -205,8 +201,6 @@ class NeuralRenderer(torch.nn.Module):
         self.renderer.renderer.light_color_directional = [1, 1, 1]  # white
         self.renderer.renderer.light_direction = [0, 0, 1]  # up-to-down
         
-                      
-            
         self.renderer.to_gpu()
 
         self.proj_fn = None
@@ -228,9 +222,9 @@ class NeuralRenderer(torch.nn.Module):
 
     def forward(self, vertices, faces, textures=None):
         if textures is not None:
-            return self.RenderFunc(vertices, faces, textures)
+            return self.RenderFunc.forward(vertices, faces, textures)
         else:
-            return self.RenderFunc(vertices, faces)
+            return self.RenderFunc.forward(vertices, faces)
 
 
 def example():
@@ -244,7 +238,7 @@ def example():
     with open('./all_faces.txt', 'r') as f:
         face_ids = f.readlines()
         for face_id in face_ids:
-            texture_mask[int(face_id) - 1, :, :, :, :] = 1;
+            texture_mask[int(face_id) - 1, :, :, :, :] = 1
     texture_mask = torch.from_numpy(texture_mask).cuda(device=0).unsqueeze(0)
     print(texture_mask.size())
     mask_renderer = NeuralRenderer()
@@ -256,7 +250,6 @@ def example():
     textures = torch.from_numpy(textures).cuda(device=0)
     print(textures.size())
     textures = textures * texture_mask
-    
     
     data = np.load(data_path)
     img = data['img']
@@ -270,8 +263,6 @@ def example():
     imgs_pred = mask_renderer.forward(vertices_var, faces_var, textures)
     im_rendered = imgs_pred.data.cpu().numpy()[0]
     im_rendered = np.transpose(im_rendered, (1,2,0))
-    
-    
     
     print(im_rendered.shape)
     print(np.max(im_rendered), np.max(img))
